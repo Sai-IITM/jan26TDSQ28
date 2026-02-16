@@ -7,13 +7,9 @@ from pydantic import BaseModel
 from openai import OpenAI
 from dotenv import load_dotenv
 
-# Load env vars (Vercel ignores this, uses dashboard vars)
 load_dotenv()
-
-# Single FastAPI app instance
 app = FastAPI(title="Streaming LLM API")
 
-# CORS for frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -22,15 +18,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# OpenAI client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 class StreamRequest(BaseModel):
     prompt: str
     stream: bool = True
 
+@app.get("/")
+async def root():
+    return {"message": "Streaming LLM API ready! POST to /stream"}
+
 @app.post("/stream")
 async def stream_llm(request: StreamRequest):
+    # ... exact streaming generator code from before ...
     def event_generator() -> Generator[str, None, None]:
         try:
             stream = client.chat.completions.create(
