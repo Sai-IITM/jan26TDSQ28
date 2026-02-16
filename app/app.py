@@ -1,9 +1,9 @@
 import os
+import requests
 import json
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from openai import OpenAI
 
 app = FastAPI()
 
@@ -12,50 +12,41 @@ class StreamRequest(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "AiPipe Streaming LLM ✅", "ready": True}
+    return {"status": "AiPipe HTTP Streaming ✅", "ready": True}
 
 @app.post("/stream")
 async def stream_llm(request: StreamRequest):
-    # AiPipe OpenAI-compatible client
-    client = OpenAI(
-        api_key=os.getenv("OPENAI_API_KEY"),  # Your JWT token
-        base_url="https://api.aipipe.ai/v1"  # AiPipe endpoint
-    )
+    token = os.getenv("OPENAI_API_KEY")  # Your AiPipe JWT
     
     def generate():
         try:
-            stream = client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[{"role": "user", "content": request.prompt}],
+            response = requests.post(
+                "https://api.aipipe.ai/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "gpt-3.5-turbo",
+                    "messages": [{"role": "user", "content": request.prompt}],
+                    "stream": True
+                },
                 stream=True
             )
             
-            # Assignment requirement: 5+ chunks
-            chunk_count = 0
-            buffer = ""
-            
-            for chunk in stream:
-                if chunk.choices[0].delta.content:
-                    buffer += chunk.choices[0].delta.content
-                    # Send chunks of ~30 chars OR force 5 chunks
-                    if len(buffer) >= 30 or chunk_count >= 5:
-                        yield f"data: {json.dumps({'content': buffer})}\n\n"
-                        buffer = ""
-                        chunk_count += 1
-            
-            # Final chunk
-            if buffer:
-                yield f"data: {json.dumps({'content': buffer})}\n\n"
-            yield "data: [DONE]\n\n"
-            
+            for line in response.iter_lines():
+                if line:
+                    line_str = line.decode('utf-8')
+                    if line_str.startswith('data: '):
+                        data = line_str[6:]  # Remove "data: "
+                        if data.strip() == '[DONE]':
+                            yield "data: [DONE]\n\n"
+                            break
+                        yield f"{line_str}\n\n"
+                        
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
             yield "data: [DONE]\n\n"
     
-    return StreamingResponse(
-        generate(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"}
-    )
-
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
